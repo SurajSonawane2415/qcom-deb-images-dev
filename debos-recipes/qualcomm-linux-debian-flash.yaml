@@ -98,6 +98,27 @@ actions:
     "dtb" "qcom/qcs6490-rb3gen2.dtb"
     "dtb_bin_type" "combineddtb"
 )}}
+{{- $boards = append $boards (dict
+    "name" "qcs6490-axon-mini"
+    "silicon_family" "qcm6490"
+    "ptool_platforms" (list "qcs6490-rb3gen2/ufs")
+    "boot_binaries_download" (dict
+        "description" "QCS6490 Axon Mini boot binaries"
+        "url" "https://github.com/vicharak-in/qcom-board-assets/releases/download/qcs6490-axon-mini-r0.1/qcs6490-axon-mini-boot-binaries.zip"
+        "name" "qcs6490-axon-mini-boot-binaries"
+        "filename" "qcs6490-axon-mini-boot-binaries.zip"
+        "sha256sum" "77860203bf38290585719263c91b7a41acce1555b8908fd29401b6763c98a4d9"
+    )
+    "cdt_download" (dict
+        "description" "QCS6490 Axon Mini CDT"
+        "url" "https://github.com/vicharak-in/qcom-board-assets/releases/download/qcs6490-axon-mini-r0.1/qcs6490-axon-mini-cdt.zip"
+        "name" "qcs6490-axon-mini-cdt"
+        "filename" "qcs6490-axon-mini-cdt.zip"
+        "sha256sum" "f8fe9ccbade6274c046d026fa8e0ed405c2364c3c9623ff6c824cc2296790b32"
+    )
+    "cdt_filename" "axon-mini_CDT.bin"
+    "dtb" "qcom/qcs6490-vicharak-axon-mini.dtb"
+)}}
 {{- end }}
 {{- if eq $build_qcs8300 "true" }}
 {{- $boards = append $boards (dict
