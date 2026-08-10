@@ -1,0 +1,81 @@
+# Board profile: Axon Mini (QCS6490)
+# Build with: make BOARD=axon-mini rootfs.tar
+name: axon-mini
+hostname: axon-mini
+username: vicharak
+password: "12345"
+root_password: root
+# Product images keep a fixed password (no first-login chage)
+force_password_change: false
+
+overlays:
+  - qsc-deb-releases
+  - vicharak-axon-mini
+  # generated at build time (sudoers, etc.)
+  - generated
+
+xfcedesktop: true
+gnomedesktop: false
+
+vnc:
+  enabled: true
+  display: 1
+  geometry: "1280x800"
+  password: "12345"
+  localhost: false
+
+kernel:
+  package: none
+  localdebs: local-debs
+  localdeb_src: ../deb-packages/axon-mini-qcs6490-deb-packages
+  required_dtb: qcom/qcs6490-vicharak-axon-mini.dtb
+
+image:
+  dtb: qcom/qcs6490-vicharak-axon-mini.dtb
+
+# Extra packages beyond the shared comfortable set
+packages:
+  - openssh-server
+  - avahi-daemon
+  - libnss-mdns
+  - toilet
+  - toilet-fonts
+  - lsb-release
+  - lm-sensors
+  - gpiod
+  - libgpiod-dev
+  - build-essential
+  - gtkterm
+  - minicom
+  - nvme-cli
+  - parted
+  - smartmontools
+  - file
+  - libdrm-tests
+  - x11-xserver-utils
+  - dnsmasq-base
+  - hostapd
+  - gstreamer1.0-tools
+  - gstreamer1.0-plugins-base
+  - gstreamer1.0-plugins-good
+  - gstreamer1.0-plugins-bad
+  - gstreamer1.0-plugins-ugly
+  - gstreamer1.0-libav
+  - gstreamer1.0-rtsp
+  - gstreamer1.0-alsa
+  - gstreamer1.0-gl
+  - gstreamer1.0-x
+  - ffmpeg
+  - libcamera-tools
+  - libcamera-v4l2
+  - gstreamer1.0-libcamera
+  - curl
+  - htop
+  - nano
+  - tree
+  - iputils-ping
+
+ci:
+  login_user: vicharak
+  login_password: "12345"
+  hostname: axon-mini

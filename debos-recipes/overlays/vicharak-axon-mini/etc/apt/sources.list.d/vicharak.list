@@ -1,0 +1,6 @@
+# Vicharak APT — https://pkg.vicharak.in
+deb [signed-by=/etc/apt/keyrings/vicharak.gpg] https://pkg.vicharak.in stable stable
+deb [signed-by=/etc/apt/keyrings/vicharak.gpg] https://pkg.vicharak.in stable-qcsmain stable-qualcomm/qcsmain
+deb [signed-by=/etc/apt/keyrings/vicharak.gpg] https://pkg.vicharak.in stable-qcs6490-main stable-qualcomm/qcs6490/main
+deb [signed-by=/etc/apt/keyrings/vicharak.gpg] https://pkg.vicharak.in stable-qcs6490-axon-mini stable-qualcomm/qcs6490/axon-mini/main
+deb [signed-by=/etc/apt/keyrings/vicharak.gpg] https://pkg.vicharak.in stable-qcs6490-axon-mini-debian-trixie stable-qualcomm/qcs6490/axon-mini/debian/trixie

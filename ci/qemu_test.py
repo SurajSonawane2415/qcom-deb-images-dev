@@ -12,6 +12,14 @@ import tempfile
 import pexpect
 import pytest
 
+# Override with: eval "$(python3 scripts/board-config.py ci-env axon-mini)"
+BOARD_HOSTNAME = os.environ.get("BOARD_HOSTNAME", "debian")
+BOARD_USERNAME = os.environ.get("BOARD_USERNAME", "debian")
+BOARD_PASSWORD = os.environ.get("BOARD_PASSWORD", "debian")
+BOARD_FORCE_PASSWORD_CHANGE = os.environ.get(
+    "BOARD_FORCE_PASSWORD_CHANGE", "1"
+) not in ("0", "false", "False")
+
 
 @pytest.fixture
 def vm():
@@ -64,24 +72,27 @@ def vm():
         child.wait()
 
 
-def test_password_reset_required(vm):
-    """On first login, there should be a mandatory reset password flow"""
-    # https://github.com/qualcomm-linux/qcom-deb-images/issues/69
+def test_login(vm):
+    """Default credentials should allow a normal login (env-overridable)."""
 
     # This takes a minute or two on a ThinkPad T14s Gen 6 Snapdragon
-    vm.expect_exact("debian login:", timeout=240)
+    vm.expect_exact(f"{BOARD_HOSTNAME} login:", timeout=240)
 
-    vm.send("debian\r\n")
+    vm.send(f"{BOARD_USERNAME}\r\n")
     vm.expect_exact("Password:")
-    vm.send("debian\r\n")
-    vm.expect_exact("You are required to change your password immediately")
-    vm.expect_exact("Current password:")
-    vm.send("debian\r\n")
-    vm.expect_exact("New password:")
-    vm.send("new password\r\n")
-    vm.expect_exact("Retype new password:")
-    vm.send("new password\r\n")
-    vm.expect_exact("debian@debian:~$")
+    vm.send(f"{BOARD_PASSWORD}\r\n")
+
+    if BOARD_FORCE_PASSWORD_CHANGE:
+        # https://github.com/qualcomm-linux/qcom-deb-images/issues/69
+        vm.expect_exact("You are required to change your password immediately")
+        vm.expect_exact("Current password:")
+        vm.send(f"{BOARD_PASSWORD}\r\n")
+        vm.expect_exact("New password:")
+        vm.send("new password\r\n")
+        vm.expect_exact("Retype new password:")
+        vm.send("new password\r\n")
+
+    vm.expect_exact(f"{BOARD_USERNAME}@{BOARD_HOSTNAME}:~$")
 
     # The /boot/efi/loader/random-seed file should not be readable to users
     # https://github.com/qualcomm-linux/qcom-deb-images/issues/279

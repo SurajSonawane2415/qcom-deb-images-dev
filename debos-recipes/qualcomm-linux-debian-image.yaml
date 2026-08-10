@@ -1,3 +1,4 @@
+# Override firmware DTB with one from the installed linux-image (-t dtb:qcom/....dtb)
 {{- $dtb := or .dtb "firmware" }}
 {{- $imagesize := or .imagesize "6GiB" }}
 {{- $imagetype := or .imagetype "ufs" }}

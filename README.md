@@ -82,24 +82,29 @@ scripts/build-linux-deb.py --linux-next kernel-configs/*.config
 Building the image requires the following build-dependencies:
 
 ```bash
-apt -y install debian-archive-keyring make mmdebstrap mtools python3-pexpect python3-pytest qemu-efi-aarch64 qemu-system-arm xmlstarlet python3-defusedxml
+apt -y install debian-archive-keyring make mmdebstrap mtools python3-pexpect python3-pytest python3-yaml qemu-efi-aarch64 qemu-system-arm xmlstarlet python3-defusedxml
 ```
 
 To build flashable assets for all supported boards, follow these steps:
 
 1. build tarballs of the root filesystem and DTBs
     ```bash
+    # Generic Qualcomm Linux image (debian/debian, stock linux-image-arm64):
     make rootfs.tar
 
-    # (optional) if you've built a local kernel, copy it to `debos-recipes/local-debs/`
-    # and run this instead:
-    #EXTRA_DEBOS_OPTS="-t localdebs:local-debs/ -t kernelpackage:none" make rootfs.tar
+    # Axon Mini product image (user/hostname/XFCE/VNC/local kernel debs):
+    make BOARD=axon-mini rootfs.tar
+
+    # Refresh debs for a board profile only:
+    #make BOARD=axon-mini prepare-board
     ```
 
 1. build disk and filesystem images from the root filesystem tarball
     ```bash
     # the default is to build a UFS image
     make disk-ufs.img
+    # or, with the same board profile used for rootfs:
+    #make BOARD=axon-mini disk-ufs.img
 
     # (optional) if you want SD card images or support for eMMC boards, run
     # this as well:
@@ -139,18 +144,30 @@ debos --fakemachine-backend qemu --memory 1GiB --scratchsize 6GiB debos-recipes/
 
 #### Options for debos recipes
 
+Product boards are described under `boards/` and selected with `make BOARD=<name>`.
+That sets hostname/user/overlays/desktop/VNC/local debs/DTB via
+`scripts/board-config.py`. See `boards/README.md`.
+
 A few options are provided in the debos recipes; for the root filesystem recipe:
 
+- `hostname` / `username` / `password` / `rootpassword`: default user identity
+  (`debian` / `debian` / `root` unless a board profile overrides them)
+- `forcepasswordchange`: require password change on first login; default: `true`
 - `localdebs`: path to a directory with local deb packages to install (NB:
-  debos expects relative pathnames)
+  debos expects relative pathnames). Default: `none`. Board profiles may set
+  `local-debs` and a sync source under `boards/<name>.yaml`.
+- `extrapackages`: comma-separated extra apt packages (from board profiles)
+- `requireddtb`: after installing `localdebs`, assert this DTB path exists under
+  `/usr/lib/linux-image-*` (e.g. `qcom/qcs6490-vicharak-axon-mini.dtb`)
 - `xfcedesktop`: install an Xfce desktop environment; default: console only
   environment
+- `vnc`: configure TigerVNC for the default user when XFCE is enabled
 - `gnomedesktop`: install a GNOME desktop environment; default: console only environment
 - `overlays`: a `,`-separated list of rootfs overlays to add from
   `debos-recipes/overlays/`. See the *Supported overlays* section below.
-- `kernelpackage`: name of the kernel package to install from apt; defaults to
-  `Debian’s linux-image-arm64`. Can (and should) be set to `none` if you are
-  providing local kernel package instead.
+  Default: `qsc-deb-releases`.
+- `kernelpackage`: name of the kernel package to install from apt; default:
+  `linux-image-arm64`. Set to `none` when the kernel comes from `localdebs`.
 - `suite`: Debian suite to use, defaults to `trixie`.
 - `snapshot`: use a Debian snapshot archive for a reproducible build (`YYYYMMDD`
   or `YYYYMMDDTHHMMSSZ`); logged to `/etc/buildinfo` as `SNAPSHOT=<date>`.
@@ -159,7 +176,7 @@ A few options are provided in the debos recipes; for the root filesystem recipe:
 For the image recipe:
 
 - `dtb`: override the firmware provided device tree with one from the Linux
-  kernel, e.g. `qcom/qcs6490-rb3gen2.dtb`; default: don't override
+  kernel, e.g. `qcom/qcs6490-rb3gen2.dtb`; default: don't override (`firmware`)
 - `imagetype`: either `ufs` (the default) or `sdcard`; UFS images are named
   disk-ufs.img and use 4096-byte sectors and SD card images are named
   disk-sdcard.img and use 512-byte sectors
@@ -185,16 +202,12 @@ Here are some example invocations:
 # build the root filesystem with Xfce
 debos -t xfcedesktop:true debos-recipes/qualcomm-linux-debian-rootfs.yaml
 
+# build an Axon Mini product rootfs (preferred: Makefile BOARD=)
+make BOARD=axon-mini rootfs.tar
+
 # build an image where systemd overrides the firmware device tree with the one
 # for RB3 Gen2
 debos -t dtb:qcom/qcs6490-rb3gen2.dtb debos-recipes/qualcomm-linux-debian-image.yaml
-
-# build an SD card image
-debos -t imagetype:sdcard debos-recipes/qualcomm-linux-debian-image.yaml
-
-# build flash assets for a subset of boards
-# (see flash recipe for accepted board names)
-debos -t target_boards:qcs615-ride,qcs6490-rb3gen2-vision-kit debos-recipes/qualcomm-linux-debian-flash.yaml
 ```
 
 Note that these manual invocations may fail because the debos defaults, like
@@ -207,6 +220,7 @@ extra options to debos invocations, use `EXTRA_DEBOS_OPTS`, e.g.:
 
 ```
 make EXTRA_DEBOS_OPTS="-t xfcedesktop:true" disk-ufs.img
+make BOARD=axon-mini EXTRA_DEBOS_OPTS="-t imagesize:8GiB" disk-ufs.img
 ```
 
 #### Supported overlays
@@ -216,8 +230,8 @@ Debian packages into the image’s root file system. They are located in
 `debos-recipes/overlays/`.
 
 By default, the *qsc-deb-releases* overlay is used if no overlays are specified
-using the `-t overlays:<value>` option. Multiple overlays can be specified,
-separated by a comma (`,`).
+using the `-t overlays:<value>` option (or a `BOARD=` profile). Multiple
+overlays can be specified, separated by a comma (`,`).
 
 Here is the list of supported overlays:
 
@@ -231,6 +245,19 @@ Here is the list of supported overlays:
         Enable our overlay apt repository that contains some package delta that
         isn't fully upstreamed and backported to trixie in Debian yet.
         Including this overlay will also select the fastrpc-test package.
+    </dd>
+    <dt>vicharak-axon-mini</dt>
+    <dd>
+        Axon Mini branding and board files: SSH welcome banner, login MOTD,
+        Vicharak APT list, and dma_heap udev rules. Selected automatically by
+        <code>make BOARD=axon-mini</code> (see <code>boards/axon-mini.yaml</code>).
+        Hostname, user, packages, XFCE/VNC, and local kernel debs come from the
+        board profile, not from this overlay alone.
+    </dd>
+    <dt>generated</dt>
+    <dd>
+        Build-time overlay written by <code>scripts/board-config.py</code>
+        (sudoers for the board user, board metadata). Not checked into git.
     </dd>
 </dl>
 
@@ -264,9 +291,21 @@ NB: It's also possible to run qdl from the host while the board is not connected
 
 #### Login
 
-Once the image has booted, you can log in as the `debian` user, with the
-default `debian` password. The image should then ask you to change this default
-password to a safe one.
+**Generic image** (`make rootfs.tar`): log in as `debian` / `debian` (password
+change required on first login). Hostname is `debian`.
+
+**Axon Mini** (`make BOARD=axon-mini …`): log in as `vicharak` / `12345`. Root
+password is `root`. Hostname is `axon-mini` (also `axon-mini.local` via mDNS).
+SSH, XFCE (LightDM), and TigerVNC (`vncserver@1` on port `5901`, password
+`12345`) are enabled. The image includes the Vicharak APT repository at
+`https://pkg.vicharak.in` for Axon Mini Debian packages.
+
+For QEMU smoke tests against a board image:
+
+```bash
+eval "$(python3 scripts/board-config.py ci-env axon-mini)"
+make BOARD=axon-mini test
+```
 
 ## Development
 

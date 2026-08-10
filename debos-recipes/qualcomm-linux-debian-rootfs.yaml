@@ -1,8 +1,26 @@
+# Generic Qualcomm Linux defaults. Product boards override via make BOARD=<name>
+# (see boards/*.yaml and scripts/board-config.py).
+{{- $hostname := or .hostname "debian" }}
+{{- $username := or .username "debian" }}
+{{- $password := or .password "debian" }}
+{{- $rootpassword := or .rootpassword "root" }}
+{{- $forcepasswordchange := or .forcepasswordchange "true" }}
 {{- $xfcedesktop := or .xfcedesktop "false" }}
 {{- $gnomedesktop := or .gnomedesktop "false" }}
+{{- $vnc := or .vnc "false" }}
+{{- $vncpassword := or .vncpassword $password }}
+{{- $vncgeometry := or .vncgeometry "1280x800" }}
+{{- $vncdisplay := or .vncdisplay "1" }}
+{{- $vnclocalhost := or .vnclocalhost "false" }}
+{{- $vnclocalhostflag := "no" }}
+{{- if eq $vnclocalhost "true" }}
+{{- $vnclocalhostflag = "yes" }}
+{{- end }}
 {{- $localdebs := or .localdebs "none" }}
 {{- $aptlocalrepo := or .aptlocalrepo "none" }}
 {{- $kernelpackage := or .kernelpackage "linux-image-arm64" }}
+{{- $requireddtb := or .requireddtb "none" }}
+{{- $extrapackages := or .extrapackages "none" }}
 {{- $overlays := or .overlays "qsc-deb-releases" }}
 {{- $buildid := or .buildid "" }}
 {{- $snapshot := or .snapshot "" }}
@@ -264,6 +282,8 @@ actions:
       - libspa-0.2-libcamera
       # Ethernet, Wi-Fi, WWAN; built-in DHCP client
       - network-manager
+      # wireless tooling (iw / iwlist helpers used with NM)
+      - iw
       # standard networking files (/etc/hosts, /etc/services etc.)
       - netbase
       # audio
@@ -298,16 +318,16 @@ actions:
 {{- end }}
 
   - action: run
-    description: Set hostname to "debian"
+    description: Set hostname to "{{ $hostname }}"
     chroot: true
     command: |
       set -eux
-      echo debian >/etc/hostname
+      echo {{ $hostname }} >/etc/hostname
       # /etc/hosts is created by netbase
-      sed -i "1s/^/127.0.1.1	debian\n/" /etc/hosts
+      sed -i "1s/^/127.0.1.1	{{ $hostname }}\n/" /etc/hosts
 
   - action: run
-    description: Add a "debian" user, add it to sudoers and various groups
+    description: Add a "{{ $username }}" user, add it to sudoers and various groups
     chroot: true
     command: |
       set -eux
@@ -321,19 +341,36 @@ actions:
       if getent group fastrpc >/dev/null 2>&1; then
         groups="${groups},fastrpc"
       fi
+      # hardware / networking groups used on product boards (when present)
+      for g in plugdev dialout netdev; do
+        if getent group "$g" >/dev/null 2>&1; then
+          groups="${groups},${g}"
+        fi
+      done
       useradd --create-home --shell /bin/bash --user-group \
-          --groups "$groups" debian
-      # set password to "debian"
-      echo debian:debian | chpasswd
+          --groups "$groups" {{ $username }}
+      echo {{ $username }}:{{ $password }} | chpasswd
+      echo root:{{ $rootpassword }} | chpasswd
+{{- if eq $forcepasswordchange "true" }}
       # password must be changed on first login
-      chage --lastday 0 debian
-      # add to sudoers
+      chage --lastday 0 {{ $username }}
+{{- end }}
+      # sbin tools on PATH for interactive shells
+      printf '\nexport PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin\n' \
+          >> /home/{{ $username }}/.bashrc
       mkdir -v --mode 755 --parents /etc/sudoers.d
-      # subshell to override umask
-      (
-        umask 226
-        echo "debian ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-debos
-      )
+      # Board overlays may ship /etc/sudoers.d/user (password required).
+      # Otherwise install the upstream NOPASSWD rule for the default user.
+      if [ -f /etc/sudoers.d/user ]; then
+        chmod 440 /etc/sudoers.d/user
+      else
+        (
+          umask 226
+          echo "{{ $username }} ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-debos
+        )
+      fi
+      # ensure a fresh machine-id is generated on first boot
+      rm -f /etc/machine-id /var/lib/dbus/machine-id
 
   # NB: Recommends pull in way too many packages, and we don't need to follow
   # Recommends reaching outside of this Priority level
@@ -383,12 +420,33 @@ actions:
       - vulkan-tools
       - wget
 
+{{- if ne $extrapackages "none" }}
+  - action: apt
+    description: Install board-specific extra packages
+    recommends: true
+    packages:
+{{- range $pkg := split "," $extrapackages }}
+      - {{ $pkg }}
+{{- end }}
+{{- end }}
+
+  - action: run
+    description: Enable dynamic MOTD scripts if present
+    chroot: true
+    command: |
+      set -eux
+      # Prefer dynamic /etc/update-motd.d over a static /etc/motd
+      rm -f /etc/motd
+      if [ -d /etc/update-motd.d ]; then
+        find /etc/update-motd.d -type f -exec chmod 755 {} +
+      fi
+
   - action: run
     description: Add default user to docker group
     chroot: true
     command: |
       set -eux
-      usermod -a -G docker debian
+      usermod -a -G docker {{ $username }}
 
 {{- if eq $xfcedesktop "true" }}
   # this should ideally be task-xfce-desktop, but this pulls too many apps;
@@ -408,8 +466,10 @@ actions:
       # nm-connection-editor below depends on polkit-1-auth-agent, and APT
       # picks up ukui-polkit as a random Provides; select mate-polkit instead
       - mate-polkit
-      # from task-xfce-desktop
+      # from task-xfce-desktop (+ VNC guide extras)
       - xfce4
+      - xfce4-goodies
+      - dbus-x11
       - lightdm
       - light-locker
       - xfce4-terminal
@@ -425,6 +485,13 @@ actions:
       - libnss-mdns
       # browser
       - chromium
+{{- if eq $vnc "true" }}
+      # TigerVNC (tigervnc-tools provides tigervncpasswd / vncpasswd)
+      - tigervnc-standalone-server
+      - tigervnc-common
+      - tigervnc-tools
+{{- end }}
+      - xterm
       # bluetooth settings
       - blueman
       # audio: wireplumber for session integration, pipewire-pulse for chromium
@@ -443,6 +510,81 @@ actions:
       - gstreamer1.0-libcamera
       - libcamera-tools
       - libcamera-v4l2
+
+  - action: run
+    description: Set Chromium as default www-browser
+    chroot: true
+    command: |
+      set -eux
+      update-alternatives --install /usr/bin/www-browser www-browser /usr/bin/chromium 100
+      update-alternatives --set www-browser /usr/bin/chromium
+      if [ -e /usr/bin/x-www-browser ] || update-alternatives --list x-www-browser >/dev/null 2>&1; then
+        update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/chromium 100 || true
+        update-alternatives --set x-www-browser /usr/bin/chromium || true
+      fi
+
+{{- if eq $vnc "true" }}
+  - action: run
+    description: Configure TigerVNC for {{ $username }} (XFCE, systemd)
+    chroot: true
+    command: |
+      set -eux
+      # Persist correct /tmp/.X11-unix permissions (common VNC failure point)
+      mkdir -p /etc/tmpfiles.d
+      cat >/etc/tmpfiles.d/x11-unix.conf <<'EOF'
+      d /tmp/.X11-unix 1777 root root -
+      EOF
+      # Apply now inside the image build as well
+      rm -rf /tmp/.X11-unix
+      mkdir -p /tmp/.X11-unix
+      chmod 1777 /tmp/.X11-unix
+      chown root:root /tmp/.X11-unix
+
+      install -d -o {{ $username }} -g {{ $username }} -m 755 /home/{{ $username }}/.vnc
+      cat >/home/{{ $username }}/.vnc/xstartup <<'EOF'
+      #!/bin/bash
+      unset SESSION_MANAGER
+      unset DBUS_SESSION_BUS_ADDRESS
+      exec startxfce4
+      EOF
+      chmod 755 /home/{{ $username }}/.vnc/xstartup
+      # Debian provides tigervncpasswd; vncpasswd may be an alternatives symlink
+      if command -v vncpasswd >/dev/null 2>&1; then
+        VNCPASSWD=vncpasswd
+      elif command -v tigervncpasswd >/dev/null 2>&1; then
+        VNCPASSWD=tigervncpasswd
+      else
+        echo "ERROR: neither vncpasswd nor tigervncpasswd found (install tigervnc-tools)" >&2
+        exit 1
+      fi
+      printf '%s\n' '{{ $vncpassword }}' | "$VNCPASSWD" -f >/home/{{ $username }}/.vnc/passwd
+      chmod 600 /home/{{ $username }}/.vnc/passwd
+      chown -R {{ $username }}:{{ $username }} /home/{{ $username }}/.vnc
+
+      cat >/etc/systemd/system/vncserver@.service <<EOF
+      [Unit]
+      Description=Start TigerVNC server at startup
+      After=syslog.target network.target
+
+      [Service]
+      Type=forking
+      User={{ $username }}
+      Group={{ $username }}
+      WorkingDirectory=/home/{{ $username }}
+      PIDFile=/home/{{ $username }}/.vnc/%H:%i.pid
+      ExecStartPre=-/usr/bin/vncserver -kill :%i
+      ExecStart=/usr/bin/vncserver -depth 24 -geometry {{ $vncgeometry }} -localhost {{ $vnclocalhostflag }} :%i
+      ExecStop=/usr/bin/vncserver -kill :%i
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      # Enable without relying on a running systemd (debos chroot)
+      mkdir -p /etc/systemd/system/multi-user.target.wants
+      ln -sfn /etc/systemd/system/vncserver@.service \
+          /etc/systemd/system/multi-user.target.wants/vncserver@{{ $vncdisplay }}.service
+{{- end }}
 {{- end }}
 
 {{- if eq $gnomedesktop "true" }}
@@ -611,11 +753,48 @@ actions:
     destination: /root/
 
   - action: run
-    description: Install local debs from /root/
+    description: Install local kernel/firmware debs (linux-image, modules, DTB)
     chroot: true
     command: |
       set -eux
-      apt-get -y install /root/*.deb
+      if ! ls /root/*.deb >/dev/null 2>&1; then
+        echo "ERROR: no .deb files found in localdebs ({{ $localdebs }})" >&2
+        echo "Run: make BOARD=<board> prepare-board  (or copy debs into debos-recipes/local-debs/)" >&2
+        exit 1
+      fi
+      # Require exactly one linux-image .deb to avoid installing multiple
+      # kernels and ambiguous DTB/module selection later.
+      set -- /root/linux-image-*.deb
+      if [ "$#" -eq 0 ] || [ ! -f "$1" ]; then
+        echo "ERROR: localdebs must include linux-image-*.deb (kernel + modules + DTB)" >&2
+        ls -la /root/ >&2 || true
+        exit 1
+      fi
+      if [ "$#" -ne 1 ]; then
+        echo "ERROR: expected exactly one linux-image-*.deb, found $#:" >&2
+        printf '  %s\n' "$@" >&2
+        exit 1
+      fi
+      linux_image_deb=$1
+      # Install linux-image first (vmlinuz + modules + DTB), then the rest.
+      # --allow-downgrades: local linux-libc-dev / headers may be older than
+      # the Debian suite's already-installed linux-libc-dev.
+      apt-get -y --allow-downgrades install "$linux_image_deb"
+      for deb in /root/*.deb; do
+        [ "$deb" = "$linux_image_deb" ] && continue
+        apt-get -y --allow-downgrades install "$deb"
+      done
+{{- if ne $requireddtb "none" }}
+      # Ensure the board's required DTB and modules came from the local linux-image
+      dtb=$(ls -1 /usr/lib/linux-image-*/{{ $requireddtb }} | head -1)
+      test -f "$dtb"
+      echo "Installed required DTB: $dtb"
+      kver=$(basename "$(dirname "$(dirname "$dtb")")")
+      kver=${kver#linux-image-}
+      test -d "/lib/modules/${kver}"
+      test -e "/boot/vmlinuz-${kver}"
+      echo "Installed kernel ${kver} (image + modules + DTB) from local debs"
+{{- end }}
       # no need to keep these
       rm -vf /root/*.deb
 {{- end }}

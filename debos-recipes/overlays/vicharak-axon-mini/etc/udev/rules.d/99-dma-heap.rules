@@ -1,0 +1,2 @@
+# Allow non-root camera apps (qcam/libcamera) to use dma_heap buffers
+SUBSYSTEM=="dma_heap", MODE="0666"
