@@ -24,9 +24,11 @@
 name: EFS Maintenance
 
 on:
-  # run every Monday at 5:00am UTC, before the other workflows
+  # run every Monday at 00:30am UTC, before the other workflows: the earliest of
+  # those is the daily qcom-next kernel build at 2:30am, and pruning artifacts
+  # while a build is publishing to EFS is best avoided
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '30 0 * * 1'
   workflow_dispatch:
     inputs:
       create_new_location:
@@ -46,17 +48,19 @@ on:
         type: string
         default: '30'
 
-# implicitely set all other permissions to none
-permissions:
-  contents: read
+# grant nothing by default; every job below declares the scopes it needs
+permissions: {}
 
 env:
   EFS_NEW_PATH: /efs/qli/qcom-deb-images
   EFS_OLD_PATH: /efs/qli/metaqcom/gh-runners/quic-yocto/downloads/qcom-deb-images
+  MAX_AGE_DAYS: ${{ inputs.max_age_days }}
 
 jobs:
   efs-maintenance:
     name: EFS maintenance
+    # only prunes files under /efs, never touches the repository
+    permissions: {}
     # don't run from forks of the main repository
     if: github.repository == 'qualcomm-linux/qcom-deb-images'
     runs-on: [self-hosted, qcom-u2404, amd64]
@@ -77,7 +81,7 @@ jobs:
         if: ${{ inputs.age_cleanup || github.event_name == 'schedule' }}
         run: |
           set -ux
-          max_age_days="${{ inputs.max_age_days }}"
+          max_age_days="$MAX_AGE_DAYS"
 
           if [ ! -d "${EFS_NEW_PATH}" ]; then
             echo "New EFS directory ${EFS_NEW_PATH} does not exist, skipping"

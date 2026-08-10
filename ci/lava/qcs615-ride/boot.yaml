@@ -12,9 +12,9 @@ actions:
     to: qdl
 - boot:
     firehose_program: prog_firehose_ddr.elf
-    rawprogram: rawprogram0.xml rawprogram1.xml rawprogram2.xml rawprogram3.xml rawprogram4.xml rawprogram5.xml
-    patch: patch0.xml patch1.xml patch2.xml patch3.xml patch4.xml patch5.xml
-    path: flash_qcs6490-rb3gen2-vision-kit_ufs
+    rawprogram: rawprogram0.xml rawprogram1.xml rawprogram2.xml rawprogram3.xml rawprogram4.xml
+    patch: patch0.xml patch1.xml patch2.xml patch3.xml patch4.xml
+    path: flash_qcs615-ride_ufs
     storage: ufs
     debug: true
     timeout:
@@ -60,15 +60,14 @@ actions:
       parameters:
         SKIP_INSTALL: "True"
         WAIT_TIME: 60
+        DEVICE: wlp1s0
 context:
   test_character_delay: 10
-device_type: qcs6490-rb3gen2-vision-kit
+device_type: qcs615-ride
 job_name: smoke tests {{GITHUB_REPOSITORY}} {{GITHUB_RUN_ID}}-{{GITHUB_RUN_ATTEMPT}}
 metadata:
   build-commit: '{{GITHUB_SHA}}'
 priority: 50
-tags:
-- cambridge-lab
 timeouts:
   job:
     minutes: 210

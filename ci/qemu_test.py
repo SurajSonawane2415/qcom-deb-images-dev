@@ -52,6 +52,10 @@ def vm():
                 "-bios",
                 "/usr/share/AAVMF/AAVMF_CODE.fd",
             ],
+            # Emulated aarch64 (no KVM) on a loaded CI runner is slow, so give
+            # every expect() a generous default. The initial boot still
+            # overrides this with a longer per-call timeout below.
+            timeout=120,
         )
         child.logfile = sys.stdout.buffer
         yield child
@@ -69,7 +73,7 @@ def test_password_reset_required(vm):
     # https://github.com/qualcomm-linux/qcom-deb-images/issues/69
 
     # This takes a minute or two on a ThinkPad T14s Gen 6 Snapdragon
-    vm.expect_exact("debian login:", timeout=240)
+    vm.expect_exact("debian login:", timeout=420)
 
     vm.send("debian\r\n")
     vm.expect_exact("Password:")
