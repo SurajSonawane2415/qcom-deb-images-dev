@@ -4,12 +4,8 @@ on:
   push:
     branches: [main]
 
-# implicitely set all other permissions to none
-permissions:
-  checks: write # lava-test.yml
-  contents: read # debos.yml lava-schema-check.yml lava-test.yml
-  packages: read # lava-test.yml
-  pull-requests: write # lava-test.yml
+# grant nothing by default; every job below declares the scopes it needs
+permissions: {}
 
 jobs:
   build-daily:
@@ -18,17 +14,27 @@ jobs:
       matrix:
         suite: [trixie, forky]
     uses: ./.github/workflows/debos.yml
+    permissions:
+      contents: read
     with:
       suite: ${{ matrix.suite }}
+      # QLI targets qcom-next; consume the debs published to EFS by the
+      # "Daily qcom-next linux build" workflow rather than a kernel from an
+      # APT repository
+      kernelpackages: efs/qcom-next
   schema-check:
     uses: ./.github/workflows/lava-schema-check.yml
+    permissions:
+      contents: read
   test:
     uses: ./.github/workflows/lava-test.yml
     needs: [build-daily, schema-check]
-    secrets: inherit
+    permissions:
+      checks: write
+      contents: read
+      packages: read
+      pull-requests: write
+    secrets:
+      LAVATOKEN: ${{ secrets.LAVATOKEN }}
     with:
       url: ${{ needs.build-daily.outputs.artifacts_url }}
-      # monaco-evk only validated against the linux-next/qcom-next/monza
-      # kernels so far; see
-      # https://github.com/qualcomm-linux/qcom-deb-images/issues/440
-      boards_exclude: '["glymur-crd", "monaco-evk"]'

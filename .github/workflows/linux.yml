@@ -18,6 +18,13 @@ on:
         required: false
         type: string
         default: ''
+      skip_image_build:
+        description: >
+          Skip building image. The LAVA tests boot that image, so the test
+          job is skipped along with it
+        required: false
+        type: boolean
+        default: false
       skip_qemu_tests:
         description: Skip QEMU tests
         required: false
@@ -38,6 +45,21 @@ on:
         required: false
         type: string
         default: ''
+      lava_report_test_results_externally:
+        description: >
+          Report LAVA results as a check run on the commit and a comment on
+          associated pull requests. Set false for kernels we track for
+          reference but don't gate development on; their results then stay in
+          the job summary
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      LAVATOKEN:
+        description: API token used to submit jobs to LAVA
+        # only forwarded to lava-test.yml; callers passing skip_lava_tests
+        # never reach that job, so this stays optional
+        required: false
   # allow manual runs
   workflow_dispatch:
     inputs:
@@ -54,12 +76,10 @@ on:
         required: false
         type: string
 
-# implicitely set all other permissions to none
-permissions:
-  checks: write # lava-test.yml
-  contents: read # actions/checkout debos.yml lava-test.yml
-  packages: read # lava-test.yml
-  pull-requests: write # lava-test.yml
+# grant nothing by default; every job below declares the scopes it needs. these
+# are also capped by the calling job's permissions: block, so callers have to
+# grant at least as much.
+permissions: {}
 
 env:
   # github runs are only unique per repository and may also be re-run; create a
@@ -79,6 +99,8 @@ jobs:
   build-linux-deb:
     # don't run cron from forks of the main repository or from other branches
     if: github.repository == 'qualcomm-linux/qcom-deb-images' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read # actions/checkout
     # for cross-builds
     runs-on: [self-hosted, qcom-u2404, amd64]
     # alternative for native builds, but overkill to do both
@@ -88,9 +110,10 @@ jobs:
       volumes:
         - /efs/qli/qcom-deb-images:/efs
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # make sure we have latest packages first, to get latest fixes, to avoid
       # an automated update while we're building, and to prevent version skews
@@ -124,6 +147,13 @@ jobs:
           # stage artifacts in a directory
           mkdir -v artifacts
           cp -av `dcmd *.changes` artifacts
+          # also publish the unstripped vmlinux to help debug crashes: it
+          # carries the kernel symbol table so oops/panic backtraces can be
+          # symbolize. This matches the vmlinux artifact meta-qcom's Yocto CI
+          # publishes and is required by teams analyzing kernel crashes.
+          if [ -f linux/vmlinux ]; then
+            cp -av linux/vmlinux artifacts/
+          fi
 
       - name: Upload results to EFS
         run: |
@@ -137,7 +167,7 @@ jobs:
           sync
 
       - name: Upload private artifacts
-        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
         id: upload_artifacts
         with:
           path: artifacts
@@ -146,10 +176,13 @@ jobs:
           destination: ${{ github.repository_owner }}/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
 
   debos-linux-deb:
+    if: ${{ !inputs.skip_image_build }}
     needs: build-linux-deb
     uses: ./.github/workflows/debos.yml
+    permissions:
+      contents: read
     with:
-      kernelpackage: efs/${{ inputs.kernel_name || 'mainline' }}
+      kernelpackages: efs/${{ inputs.kernel_name || 'mainline' }}
       debos_extra_args: ${{ inputs.debos_extra_args }}
       skip_qemu_tests: ${{ inputs.skip_qemu_tests || false }}
 
@@ -157,9 +190,16 @@ jobs:
     if: ${{ !inputs.skip_lava_tests }}
     uses: ./.github/workflows/lava-test.yml
     needs: debos-linux-deb
-    secrets: inherit
+    permissions:
+      checks: write
+      contents: read
+      packages: read
+      pull-requests: write
+    secrets:
+      LAVATOKEN: ${{ secrets.LAVATOKEN }}
     with:
       url: ${{ needs.debos-linux-deb.outputs.artifacts_url }}
       suite: trixie
       boards_include: ${{ inputs.lava_boards_include }}
       boards_exclude: ${{ inputs.lava_boards_exclude }}
+      report_test_results_externally: ${{ inputs.lava_report_test_results_externally }}
